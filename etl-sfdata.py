@@ -23,7 +23,7 @@ SUBJECT_KEYWORDS = [
 
 SENDER_KEYWORDS = [
     "loredana.raileanu@fluidads.com",
-    "reports@fluidads.com"
+    "integrations@fluidads.com"
 ]
 
 DAYS_BACK = 10
