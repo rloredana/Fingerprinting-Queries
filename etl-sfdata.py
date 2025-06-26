@@ -5,24 +5,38 @@ from datetime import datetime, timedelta
 import re
 
 # --- CONFIGURATION ---
-DOWNLOAD_DIR = Path("C:/Users/loredana/salesforce_reports/downloads")
-INPUT_DIR = Path("C:/Users/loredana/salesforce_reports/input_manual")
-DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
-INPUT_DIR.mkdir(parents=True, exist_ok=True)
+BASE_DIR = Path("C:/Users/loredana/salesforce_reports")
+
+DOWNLOAD_DIR      = BASE_DIR / "downloads"
+INPUT_DIR         = BASE_DIR / "input_manual"
+OUTPUT_EMAIL_DIR  = BASE_DIR / "output_email"
+OUTPUT_FOLDER_DIR = BASE_DIR / "output_folder"
+
+# Create all folders if not exist
+for dir_path in [DOWNLOAD_DIR, INPUT_DIR, OUTPUT_EMAIL_DIR, OUTPUT_FOLDER_DIR]:
+    dir_path.mkdir(parents=True, exist_ok=True)
 
 SUBJECT_KEYWORDS = [
     "Report results (Active users)",
     "Another Subject to Match"
 ]
-SENDER_KEYWORD = "loredana.raileanu@fluidads.com"
+
+SENDER_KEYWORDS = [
+    "loredana.raileanu@fluidads.com",
+    "reports@fluidads.com"
+]
+
 DAYS_BACK = 10
 
 # --- DATE FIXING FUNCTION ---
 def fix_date(val):
     if isinstance(val, str):
         val = val.strip()
-        # Match MM/DD/YYYY or MM-DD-YYYY, optionally with 12h time (HH:MM AM/PM)
-        match = re.match(r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[,\s]+(\d{1,2}):(\d{2})\s*(AM|PM))?$', val, re.IGNORECASE)
+        match = re.match(
+            r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[,\s]+(\d{1,2}):(\d{2})\s*(AM|PM))?$',
+            val,
+            re.IGNORECASE
+        )
         if match:
             mm, dd, yyyy, hour, minute, ampm = match.groups()
             try:
@@ -40,7 +54,7 @@ def reformat_date_column(series):
     return series.apply(fix_date)
 
 # --- CLEAN FILE DATES ---
-def clean_file_dates(file_path: Path):
+def clean_file_dates(file_path: Path, output_dir: Path):
     suffix = file_path.suffix.lower()
     try:
         if suffix == ".csv":
@@ -54,19 +68,24 @@ def clean_file_dates(file_path: Path):
             if not df[col].equals(original):
                 print(f"Formatted date column: {col} in {file_path.name}")
 
-        if suffix == ".csv":
-            df.to_csv(file_path, index=False, encoding="utf-8-sig")
-        else:
-            df.to_excel(file_path, index=False, engine="openpyxl")
+        output_file = output_dir / file_path.name
+        if output_file.exists():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = output_file.with_name(f"{output_file.stem}_{timestamp}{output_file.suffix}")
 
-        print(f"Updated: {file_path.name}")
+        if suffix == ".csv":
+            df.to_csv(output_file, index=False, encoding="utf-8-sig")
+        else:
+            df.to_excel(output_file, index=False, engine="openpyxl")
+
+        print(f"Cleaned and saved: {output_file.name}")
     except Exception as e:
         print(f"Failed to process {file_path.name}: {e}")
 
 # --- FETCH FROM OUTLOOK ---
 def fetch_outlook_attachments():
     outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
-    inbox = outlook.GetDefaultFolder(6)  # 6 = Inbox
+    inbox = outlook.GetDefaultFolder(6)
     messages = inbox.Items
     messages.Sort("[ReceivedTime]", True)
 
@@ -84,13 +103,19 @@ def fetch_outlook_attachments():
 
         if (
             any(keyword.lower() in message.Subject.lower() for keyword in SUBJECT_KEYWORDS)
-            and SENDER_KEYWORD.lower() in message.SenderEmailAddress.lower()
+            and any(sender.lower() in message.SenderEmailAddress.lower() for sender in SENDER_KEYWORDS)
         ):
             attachments = message.Attachments
             for i in range(attachments.Count):
                 attachment = attachments.Item(i + 1)
                 if attachment.FileName.endswith((".csv", ".xlsx", ".xls")):
                     save_path = DOWNLOAD_DIR / attachment.FileName
+
+                    # Add timestamp if file already exists
+                    if save_path.exists():
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        save_path = save_path.with_name(f"{save_path.stem}_{timestamp}{save_path.suffix}")
+
                     attachment.SaveAsFile(str(save_path))
                     print(f"Saved from email: {save_path.name}")
                     downloaded_files.append(save_path)
@@ -103,18 +128,20 @@ def fetch_outlook_attachments():
 def main(mode="email"):
     if mode == "email":
         files = fetch_outlook_attachments()
+        output_dir = OUTPUT_EMAIL_DIR
     elif mode == "folder":
         files = list(INPUT_DIR.glob("*.csv")) + list(INPUT_DIR.glob("*.xlsx")) + list(INPUT_DIR.glob("*.xls"))
         if not files:
             print(f"No files found in folder: {INPUT_DIR}")
             return
+        output_dir = OUTPUT_FOLDER_DIR
     else:
         print("Invalid mode. Use 'email' or 'folder'.")
         return
 
     for file_path in files:
-        clean_file_dates(file_path)
+        clean_file_dates(file_path, output_dir)
 
 if __name__ == "__main__":
-    # Change between "email" or "folder"
+    # Choose: "email" or "folder"
     main(mode="email")
