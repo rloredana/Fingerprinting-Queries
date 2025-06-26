@@ -92,7 +92,7 @@ def fetch_outlook_attachments():
                 if attachment.FileName.endswith((".csv", ".xlsx", ".xls")):
                     save_path = DOWNLOAD_DIR / attachment.FileName
                     attachment.SaveAsFile(str(save_path))
-                    print(f"📥 Saved from email: {save_path.name}")
+                    print(f"Saved from email: {save_path.name}")
                     downloaded_files.append(save_path)
 
     if not downloaded_files:
